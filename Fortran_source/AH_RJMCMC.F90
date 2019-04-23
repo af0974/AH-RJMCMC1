@@ -5,17 +5,17 @@ PROGRAM Main_Age_Uncertain_RJMCMC
 ! Authors: Phil Livermore, Alex Fournier, Thomas Bodin, March 27 2018
 ! 
 !
-
+use iso_fortran_env, only : error_unit, output_unit
 USE AGE_HYPERPARAMETER_RJMCMC
 
 
 IMPLICIT NONE
 INTEGER, PARAMETER :: MAX_DATA  = 1000
 
-CHARACTER(500) :: ARG, Data_file_name, Header, WRITE_MODEL_FILE_NAME
-CHARACTER(500) :: inputline, junk, outputs_directory
+CHARACTER(len=500) :: ARG, Data_file_name, Header, WRITE_MODEL_FILE_NAME
+CHARACTER(len=500) :: inputline, junk, outputs_directory
 INTEGER ::  NARG
-CHARACTER(1) :: AGE_distribution(1:MAX_DATA), AGE_DISTRIBUTION_TYPE, STRATIFICATION_INDEX(1:MAX_DATA)
+CHARACTER(len=1) :: AGE_distribution(1:MAX_DATA), AGE_DISTRIBUTION_TYPE, STRATIFICATION_INDEX(1:MAX_DATA)
 
 INTEGER :: I, K, BURN_IN, NSAMPLE, K_INIT, K_MAX, K_MIN, K_MAX_ARRAYBOUND, discretise_size, show, thin, num,j, &
            NUM_DATA, IOS, K_MAX_ARRAY_BOUND, s, ind, NBINS, I_MODEL, FREQ_WRITE_MODELS, FREQ_WRITE_JOINT_DISTRIB, SAMPLE_INDEX_JOINT_DISTRIBUTION
@@ -23,16 +23,16 @@ REAL( KIND = 8) :: I_MAX, I_MIN, sigma_move, sigma_change_value, sigma_age, sigm
                    X_MIN, X_MAX, age_frac
 
 INTEGER :: AGE_INDEX(1 : MAX_DATA), NUM_AGE_PARAMETERS
-CHARACTER(100), Allocatable :: LINE_READ(:)
+CHARACTER(len=100), Allocatable :: LINE_READ(:)
 INTEGER, ALLOCATABLE :: SEED(:)
 
 INTEGER :: stratification(1:MAX_DATA)
 INTEGER ::  age_col, d_age_col, F_col, dF_col, distribution_col, id_col, type_col, strat_col
 
 REAL( KIND = 8) :: age(1:MAX_DATA), delta_age(1:MAX_DATA),  intensity(1:MAX_DATA), delta_intensity(1:MAX_DATA)
-CHARACTER(20) :: ID(1:MAX_DATA)
+CHARACTER(len=20) :: ID(1:MAX_DATA)
 CHARACTER(1) :: Data_type(1: MAX_DATA), Data_type_specified
-CHARACTER(10) :: stratification_read_line(1: MAX_DATA)
+CHARACTER(len=10) :: stratification_read_line(1: MAX_DATA)
 
 REAL( KIND = 8), ALLOCATABLE :: X(:)
 
@@ -47,6 +47,7 @@ stratification(:) = 0 !default to no stratification.
 
 
 ! Load parameter file
+! af we should use the get_command_argument (2003 standard)
 NARG = iargc()
       IF(NARG .gt. 0) THEN
       CALL getarg(1,ARG)
@@ -101,29 +102,31 @@ CLOSE( 30 )
 PRINT*, 'DATA file name: ', TRIM(Data_file_name)
 OPEN(30, FILE = Data_file_name, STATUS = 'OLD', FORM = 'FORMATTED', &
                              IOSTAT = IOS, ACTION = 'READ')
-    IF( IOS .NE. 0) THEN
+IF( IOS .NE. 0) THEN
     PRINT*, 'ERROR IN OPENING FILE ', TRIM(Data_file_name)
     STOP
-    ENDIF
+ENDIF
 
-    ALLOCATE( LINE_READ(1: max(id_col, age_col, d_age_col, F_col, dF_col, distribution_col, type_col, strat_col)+1) )
+ALLOCATE( LINE_READ(1: max(id_col, age_col, d_age_col, F_col, dF_col, distribution_col, type_col, strat_col)+1) )
 
-    I=1
-    DO
-    READ(30,'(A)', END = 1001) inputline
-    IF( inputline(1:1) == '#') CYCLE
+write(OUTPUT_unit, fmt="(a,2x,i4)") "strat_col = ", strat_col 
 
-    READ(inputline,*) LINE_READ(:)
+I=1
+DO
+READ(30,'(A)', END = 1001) inputline
+IF( inputline(1:1) == '#') CYCLE
 
-    READ(LINE_READ(id_col+1),*) id(i)
-    READ(LINE_READ(age_col+1),*) age(i)
-    READ(LINE_READ(d_age_col+1),*) delta_age(i)
-    READ(LINE_READ(F_col+1),*) intensity(i)
-    READ(LINE_READ(dF_col+1),*) delta_intensity(i)
+READ(inputline,*) LINE_READ(:)
 
-    IF( type_col .GE. 0) READ(LINE_READ(type_col+1),*) data_type(i)
-    IF( distribution_col .GE. 0) READ(LINE_READ(distribution_col+1),*) AGE_distribution(i)
-    IF( strat_col .NE. -1) READ(LINE_READ(strat_col+1),*) stratification_read_line(i)
+READ(LINE_READ(id_col+1),*) id(i)
+READ(LINE_READ(age_col+1),*) age(i)
+READ(LINE_READ(d_age_col+1),*) delta_age(i)
+READ(LINE_READ(F_col+1),*) intensity(i)
+READ(LINE_READ(dF_col+1),*) delta_intensity(i)
+
+IF( type_col .GE. 0) READ(LINE_READ(type_col+1),*) data_type(i)
+IF( distribution_col .GE. 0) READ(LINE_READ(distribution_col+1),*) AGE_distribution(i)
+IF( strat_col .NE. -1) READ(LINE_READ(strat_col+1),*) stratification_read_line(i)
 
 
     i = i + 1
@@ -148,9 +151,15 @@ NUM=ceiling((nsample-burn_in)*(100-credible)/200.0_8/thin) ! number of collected
 ALLOCATE( X(1: discretise_size) )
 ALLOCATE( RETURN_INFO%AV(1:discretise_size), RETURN_INFO%BEST(1:discretise_size),  &
           RETURN_INFO%INF(1:discretise_size), RETURN_INFO%sup(1:discretise_size), &
-          RETURN_INFO%change_points(nsample * k_max_array_bound), RETURN_INFO%n_changepoint_hist(k_max_array_bound), &
-          RETURN_INFO%convergence(nsample * k_max_array_bound), &
+!         RETURN_INFO%change_points(nsample * k_max_array_bound), & af to save memory 
+          RETURN_INFO%n_changepoint_hist(k_max_array_bound), &
+          RETURN_INFO%convergence(nsample),  & ! af 
           RETURN_INFO%MARGINAL_AGES(1:NBINS,1:NUM_DATA)    )
+
+
+call system('mkdir -p '//TRIM(Outputs_directory))
+open(newunit = RETURN_INFO%output_changepoints_unit, file=TRIM(Outputs_directory)//'/changepoints.dat', &
+     status="replace", form="formatted")
 
 ALLOCATE( RETURN_INFO%MEDIAN(1:discretise_size), RETURN_INFO%MODE(1:discretise_size), &
           RETURN_INFO%MARGINAL_DENSITY_INTENSITY(1:discretise_size,1:NBINS) )
@@ -227,28 +236,32 @@ ENDIF
 ! We can tell these apart by looking for the first non-zero instance of stratification_read_line(:) and seeing whether it ends with an 'a'.
 MULTIPLE_STRATIFIED_DATA = .FALSE.
 DO i = 1, NUM_DATA
-IF(index(stratification_read_line(i), 'a') .NE. 0) MULTIPLE_STRATIFIED_DATA = .TRUE.
+    IF(index(stratification_read_line(i), 'a') .NE. 0) MULTIPLE_STRATIFIED_DATA = .TRUE.
 ENDDO
 !PRINT*, MULTIPLE_STRATIFIED_DATA
 
 IF( MULTIPLE_STRATIFIED_DATA ) THEN ! read in
 ! separate into integer and character if non-zero
-STRATIFICATION(:) = 0
-STRATIFICATION_INDEX(:) = ' '
-DO i = 1, NUM_DATA
-IF( stratification_read_line(i)(1:1) .NE. '0') THEN
-J = LEN(TRIM(stratification_read_line(i)))
-READ( stratification_read_line(i)(1:j-1),'(I)') STRATIFICATION(i)
-READ( stratification_read_line(i)(j:j),'(A)') STRATIFICATION_INDEX(i)
-ENDIF
-ENDDO
-
+    STRATIFICATION(:) = 0
+    STRATIFICATION_INDEX(:) = ' '
+    DO i = 1, NUM_DATA
+        IF( stratification_read_line(i)(1:1) .NE. '0') THEN
+            J = LEN(TRIM(stratification_read_line(i)))
+            READ( stratification_read_line(i)(1:j-1), fmt="(i1)") STRATIFICATION(i)
+            READ( stratification_read_line(i)(j:j),'(A)') STRATIFICATION_INDEX(i)
+        ENDIF
+    ENDDO
 ELSE  !either no stratification, or only a single dataset is specified without the 'a' notation. In either case, set all elements of stratification_index to 'a'
-
-DO I = 1, NUM_DATA
-READ( stratification_read_line(i),*) STRATIFICATION(I)
-ENDDO
-stratification_index(1:NUM_DATA) = 'a'
+    if ( strat_col .NE. -1) then 
+        write(ERROR_UNIT,fmt="(a)") 'here' 
+        write(ERROR_UNIT,*) stratification_read_line(1:num_data)
+        DO I = 1, NUM_DATA
+        !af
+            write(output_unit,*) stratification_read_line(i)
+            READ( stratification_read_line(i), *) STRATIFICATION(I)
+        ENDDO
+        stratification_index(1:NUM_DATA) = 'a'
+    end if 
 ENDIF
 
 
@@ -294,14 +307,14 @@ CLOSE(13)
 
 ! Check to make sure the data associated with single age parameter has been listed sequentially, otherwise it will be split into multiple age indices.
 DO I=1,NUM_AGE_PARAMETERS
-IF  (DATA_TYPE(AGE_INDEX(I)) == 'B') THEN
-    DO J = I+1,NUM_AGE_PARAMETERS
-        IF( DATA_TYPE(AGE_INDEX(J)) == 'B'  .AND. ID(AGE_INDEX(I)) == ID(AGE_INDEX(J)) ) THEN
-            PRINT*, 'FOUND DISJOINT OCCURENCES OF SITE ID ', ID(I), ' WITH TYPE B', AGE_INDEX(I), AGE_INDEX(J)
-            STOP
-        ENDIF
-    ENDDO
-ENDIF
+    IF  (DATA_TYPE(AGE_INDEX(I)) == 'B') THEN
+        DO J = I+1,NUM_AGE_PARAMETERS
+            IF( DATA_TYPE(AGE_INDEX(J)) == 'B'  .AND. ID(AGE_INDEX(I)) == ID(AGE_INDEX(J)) ) THEN
+                write(unit=error_unit, fmt=*) 'FOUND DISJOINT OCCURENCES OF SITE ID ', ID(I), ' WITH TYPE B', AGE_INDEX(I), AGE_INDEX(J)
+                STOP
+            ENDIF
+        ENDDO
+    ENDIF
 ENDDO
 
 ENDIF
@@ -310,7 +323,7 @@ PRINT*, 'NUMBER OF AGE HYPERPARAMETERS : ', NUM_AGE_PARAMETERS
 CALC_CREDIBLE = .TRUE.
 
 
-call system('mkdir -p '//TRIM(Outputs_directory))
+!call system('mkdir -p '//TRIM(Outputs_directory))
 
 ! copy input file
 call system('cp '//TRIM(ARG)//' '//TRIM(Outputs_directory)//'/input_file')
@@ -320,7 +333,7 @@ CALL RJMCMC(burn_in, NUM_DATA, age(1:NUM_DATA), delta_age(1:NUM_DATA), intensity
 
 OPEN(24, FILE = TRIM(Outputs_directory)//'/data.dat', STATUS = 'REPLACE', FORM = 'FORMATTED')
 DO i=1, NUM_DATA
-WRITE(24,'(4(F10.3,X),X,I)') AGE(i), delta_age(i), intensity(I), delta_intensity(I), stratification(i)
+WRITE(24, fmt="(4(F10.3,X),X,I1)") AGE(i), delta_age(i), intensity(I), delta_intensity(I), stratification(i)
 enddo
 CLOSE(24)
 
@@ -356,7 +369,7 @@ CLOSE(24)
 
 OPEN(24, FILE = TRIM(Outputs_directory)//'/misfit.dat', STATUS = 'REPLACE', FORM = 'FORMATTED')
 DO i=1, nsample, 100
-WRITE(24,'(i,X,ES12.3)') i, RETURN_INFO%convergence(i)
+WRITE(24,fmt="(i9,X,ES12.3)") i, RETURN_INFO%convergence(i)
 enddo
 CLOSE(24)
 
@@ -372,11 +385,11 @@ WRITE(24,'(F10.3,X,F10.3)') x(i), RETURN_INFO%inf(i)
 enddo
 CLOSE(24)
 
-OPEN(23, FILE = TRIM(Outputs_directory)//'/changepoints.dat', STATUS = 'REPLACE', FORM = 'FORMATTED')
-DO i=1, RETURN_INFO%MAX_NUMBER_CHANGE_POINTS_HISTORY
-WRITE(23,'(F10.3)') RETURN_INFO%change_points(i)
-enddo
-CLOSE(23)
+!OPEN(23, FILE = TRIM(Outputs_directory)//'/changepoints.dat', STATUS = 'REPLACE', FORM = 'FORMATTED')
+!DO i=1, RETURN_INFO%MAX_NUMBER_CHANGE_POINTS_HISTORY
+!WRITE(23,'(F10.3)') RETURN_INFO%change_points(i)
+!enddo
+CLOSE(unit=RETURN_info%output_changepoints_unit)
 
 OPEN(23, FILE = TRIM(Outputs_directory)//'/age_marginals.dat', STATUS = 'REPLACE', FORM = 'FORMATTED')
 WRITE(23,*) NUM_DATA, NBINS

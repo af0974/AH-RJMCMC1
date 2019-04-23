@@ -16,12 +16,15 @@ MODULE AGE_HYPERPARAMETER_RJMCMC
 ! RUNNING_MODE <> 1  This sets the likelihood to be unity, so that the prior distributions are sampled - these can be checked against the assumed distributions.
 
 USE SORT
+use iso_fortran_env, only: output_unit, error_unit
 
 TYPE RETURN_INFO_STRUCTURE
-REAL( KIND = 8), ALLOCATABLE, DIMENSION(:) :: AV, BEST, SUP, INF, MEDIAN, MODE, CHANGE_POINTS, CONVERGENCE, SUP_dFdt, INF_dFdt, AV_DFDT, MODE_DFDT, MEDIAN_DFDT
-REAL( KIND = 8), ALLOCATABLE :: MARGINAL_AGES(:,:), MARGINAL_DENSITY_INTENSITY(:,:)
-INTEGER :: MAX_NUMBER_CHANGE_POINTS_HISTORY
-INTEGER, ALLOCATABLE :: n_changepoint_hist(:)
+    REAL( KIND = 8), ALLOCATABLE, DIMENSION(:) :: AV, BEST, SUP, INF, MEDIAN, MODE, CHANGE_POINTS, CONVERGENCE
+    REAL( KIND = 8), ALLOCATABLE, DIMENSION(:) :: SUP_dFdt, INF_dFdt, AV_DFDT, MODE_DFDT, MEDIAN_DFDT
+    REAL( KIND = 8), ALLOCATABLE :: MARGINAL_AGES(:,:), MARGINAL_DENSITY_INTENSITY(:,:)
+    INTEGER :: MAX_NUMBER_CHANGE_POINTS_HISTORY
+    INTEGER, ALLOCATABLE :: n_changepoint_hist(:)
+    integer :: output_changepoints_unit
 END TYPE RETURN_INFO_STRUCTURE
 
 INTEGER, PARAMETER :: AGE_ASCENDING = 1, AGE_DESCENDING = 2
@@ -38,8 +41,11 @@ TYPE (RETURN_INFO_STRUCTURE) :: RETURN_INFO
 CHARACTER(*) :: Outputs_directory
 INTEGER :: I, K, BURN_IN, NSAMPLE, K_INIT, K_MAX, K_MIN, K_MAX_ARRAYBOUND, discretise_size, show, thin, num, J, &
            NUM_DATA, K_MAX_ARRAY_BOUND, s, birth, death, move, ind, k_prop, accept, k_best, out, &
-           NBINS, BIN_INDEX, IS_DIFF, CHANGE_AGE, CHANGE_value, i_age, FREQ_WRITE_MODELS, IOS, FREQ_WRITE_JOINT_DISTRIB, SAMPLE_INDEX_JOINT_DISTRIBUTION
-REAL( KIND = 8) :: D_MIN, D_MAX, I_MAX, I_MIN, sigma_move, sigma_change_value, sigma_birth, sigma_age, like_prop, prob, INT_J, pt_death(2), X_MIN, X_MAX, U, RAND(2), alpha, TEMP_RAND, AGE_FACTOR_FOR_PRIOR
+           NBINS, BIN_INDEX, IS_DIFF, CHANGE_AGE, CHANGE_value, i_age, FREQ_WRITE_MODELS, IOS, &
+           FREQ_WRITE_JOINT_DISTRIB, SAMPLE_INDEX_JOINT_DISTRIBUTION
+REAL( KIND = 8) :: D_MIN, D_MAX, I_MAX, I_MIN, sigma_move, sigma_change_value, &
+                  sigma_birth, sigma_age, like_prop, prob, INT_J, pt_death(2), &
+                  X_MIN, X_MAX, U, RAND(2), alpha, TEMP_RAND, AGE_FACTOR_FOR_PRIOR
 CHARACTER(300) :: WRITE_MODEL_FILE_NAME, format_descriptor, FILENAME
 CHARACTER(1) :: AGE_DISTRIBUTION(:)
 CHARACTER :: STRATIFICATION_INDEX(1:NUM_DATA)
@@ -48,9 +54,11 @@ REAL( KIND = 8) :: ENDPT_BEST(2), age_frac, credible, age1, age2
 
 INTEGER :: AGE_INDICES(:), MAX_AGE_INDEX, i_age2
 
-INTEGER :: b, bb, AB, AD, PD, PB, ACV, PCV, AP, PP, PA, AA, num_age_changes, STRATIFIED(:), STRATIFICATION_AGE_DIRECTION
+INTEGER :: b, bb, AB, AD, PD, PB, ACV, PCV, AP, PP, PA, AA, num_age_changes, &
+           STRATIFIED(:), STRATIFICATION_AGE_DIRECTION
 REAL( KIND = 8) :: MIDPOINT_AGE(:), DELTA_AGE(:), Intensity(:), I_sd(:), ENDPT(2), ENDPT_PROP(2), like, like_best, like_init
-REAL( KIND = 8), ALLOCATABLE :: VAL_MIN(:), VAL_MAX(:),   MINI(:,:), MAXI(:,:), PT(:,:), PT_PROP(:,:), interpolated_signal(:), X(:), PTS_NEW(:,:), PT_BEST(:,:), age(:), age_prop(:), interpolated_signal_grad(:), X2(:)
+REAL( KIND = 8), ALLOCATABLE :: VAL_MIN(:), VAL_MAX(:),   MINI(:,:), MAXI(:,:), PT(:,:), PT_PROP(:,:)
+REAL( KIND = 8), ALLOCATABLE :: interpolated_signal(:), X(:), PTS_NEW(:,:), PT_BEST(:,:), age(:), age_prop(:), interpolated_signal_grad(:), X2(:)
 INTEGER, ALLOCATABLE, DIMENSION(:) :: IND_MIN, IND_MAX
 INTEGER, ALLOCATABLE :: discrete_history(:,:)
 LOGICAL :: CALC_CREDIBLE
@@ -59,6 +67,8 @@ LOGICAL :: CALC_CREDIBLE
 INTEGER, ALLOCATABLE :: discrete_dFdt(:,:)
 INTEGER, ALLOCATABLE, DIMENSION(:) :: IND_MIN_dFdt, IND_MAX_dFdt
 REAL( KIND = 8), ALLOCATABLE :: VAL_MIN_dFdt(:), VAL_MAX_dFdt(:),   MINI_dFdt(:,:), MAXI_dFdt(:,:)
+
+integer :: unit_write_models
 
 !needed to write to files in row format:
 WRITE(format_descriptor,'(A,i4,A)') '(',discretise_size,'F14.4)'
@@ -73,13 +83,16 @@ D_max = X_max
 
 NUM=ceiling((nsample-burn_in)*(100.0_8-credible)/200.0_8/thin) ! number of collected samples for credible intervals
 
-ALLOCATE( X(1: discretise_size) )
-    DO I=1, discretise_size
-    X(I) = X_MIN + REAL(I-1, KIND = 8)/REAL(discretise_size-1, KIND = 8) * (X_MAX - X_MIN)
-    ENDDO
+write(unit=output_unit, fmt=*) 'number of collected samples for credible intervals = ', num
 
-ALLOCATE( val_min(1: discretise_size), val_max(1: discretise_size), ind_min(1: discretise_size), ind_max(1: discretise_size),  &
-MINI(1: discretise_size, 1:NUM), MAXI(1: discretise_size, 1:NUM), age(1: num_data), age_prop(1:num_data), discrete_history(1:discretise_size,1:NBINS) )
+ALLOCATE( X(1: discretise_size) )
+DO I=1, discretise_size
+    X(I) = X_MIN + REAL(I-1, KIND = 8)/REAL(discretise_size-1, KIND = 8) * (X_MAX - X_MIN)
+ENDDO
+
+ALLOCATE( val_min(1: discretise_size), val_max(1: discretise_size), ind_min(1: discretise_size), ind_max(1: discretise_size) )
+ALLOCATE( MINI(1: discretise_size, 1:NUM), MAXI(1: discretise_size, 1:NUM) )
+ALLOCATE( age(1: num_data), age_prop(1:num_data), discrete_history(1:discretise_size,1:NBINS) )
 
 ALLOCATE( pt(1:k_max_array_bound,2), pt_prop(1:k_max_array_bound,2) , pt_best(1:k_max_array_bound,2) )
 
@@ -90,27 +103,25 @@ STRATIFICATION_AGE_DIRECTION = 0
 AGE1 = 0.0_8
 AGE2 = 0.0_8
 DO i = 1, NUM_DATA
-IF (STRATIFIED(I) == 1)  AGE1 = MIDPOINT_AGE(i) 
-IF (STRATIFIED(I) == 2)  AGE2 = MIDPOINT_AGE(i)
+    IF (STRATIFIED(I) == 1)  AGE1 = MIDPOINT_AGE(i) 
+    IF (STRATIFIED(I) == 2)  AGE2 = MIDPOINT_AGE(i)
 ENDDO
 IF( MAXVAL( STRATIFIED ) > 0 .AND. (AGE1 .EQ. 0.0_8 .OR. AGE2 .EQ. 0.0_8)) THEN
-PRINT*,'FATAL ERROR: DATA STRATIFIED BUT NO DATA WITH INDEX 1 OR 2'
-STOP
+    write(error_unit, fmt='(a)') 'FATAL ERROR: DATA STRATIFIED BUT NO DATA WITH INDEX 1 OR 2'
+    STOP
 ENDIF
 
 IF( MAXVAL( STRATIFIED) > 0) THEN
-
-IF( AGE1 > AGE2) THEN
-STRATIFICATION_AGE_DIRECTION = AGE_DESCENDING
-PRINT*, 'STRATIFIED DATA ARE ARRANGED IN: AGE DESCENDING ORDER'
-ELSEIF( AGE2 > AGE1) THEN
-STRATIFICATION_AGE_DIRECTION = AGE_ASCENDING
-PRINT*, 'STRATIFIED DATA ARE ARRANGED IN: AGE ASCENDING ORDER'
-ELSE
-PRINT*, 'ERROR: CANNOT DETERMINE AGE ORDERING OF THE DATA'
-STOP
-ENDIF
-
+    IF( AGE1 > AGE2) THEN
+        STRATIFICATION_AGE_DIRECTION = AGE_DESCENDING
+        write(output_unit, fmt='(a)')  'STRATIFIED DATA ARE ARRANGED IN: AGE DESCENDING ORDER'
+    ELSEIF( AGE2 > AGE1) THEN
+        STRATIFICATION_AGE_DIRECTION = AGE_ASCENDING
+        write(output_unit, fmt='(a)')  'STRATIFIED DATA ARE ARRANGED IN: AGE ASCENDING ORDER'
+    ELSE
+        write(error_unit, fmt='(a)') 'ERROR: CANNOT DETERMINE AGE ORDERING OF THE DATA'
+        STOP
+    ENDIF
 ENDIF
 
 ! For dF/dt
@@ -119,32 +130,28 @@ ALLOCATE( discrete_dFdt(1:discretise_size,1:NBINS) )
 ! Setup file IO for (a) writing model files and (b) writing the joint distribution data
 
 IF( FREQ_WRITE_MODELS > 0) then
-OPEN(15, FILE = TRIM(Outputs_directory)//'/'//TRIM(WRITE_MODEL_FILE_NAME), STATUS = 'REPLACE', FORM = 'FORMATTED', IOSTAT = IOS)
-  IF( IOS .NE. 0) THEN
-    PRINT*, 'CANNOT OPEN FILE FOR MODEL WRITING ', TRIM(Outputs_directory)//'/'//TRIM(WRITE_MODEL_FILE_NAME)
-    STOP
-  ENDIF
+    OPEN(newunit=unit_write_models, FILE = TRIM(Outputs_directory)//'/'//TRIM(WRITE_MODEL_FILE_NAME), STATUS = 'REPLACE', FORM = 'FORMATTED', IOSTAT = IOS)
+    IF( IOS .NE. 0) THEN
+        write(error_unit, fmt='(a)') 'CANNOT OPEN FILE FOR MODEL WRITING ', TRIM(Outputs_directory)//'/'//TRIM(WRITE_MODEL_FILE_NAME)
+        STOP
+    ENDIF
 
-WRITE(15,*) discretise_size, floor(REAL(nsample-burn_in, KIND = 8)/thin/FREQ_WRITE_MODELS)
-WRITE(15,format_descriptor) X(1:discretise_size)
+    WRITE(unit=unit_write_models,fmt=*) discretise_size, floor(REAL(nsample-burn_in, KIND = 8)/thin/FREQ_WRITE_MODELS)
+    WRITE(unit=unit_write_models,fmt=format_descriptor) X(1:discretise_size)
 ENDIF
 
 
 IF( FREQ_WRITE_JOINT_DISTRIB > 0) then
-CALL SYSTEM('mkdir -p '//TRIM(Outputs_directory)//'/Joint_distribution_data')
-
-DO i=1,NUM_DATA
-WRITE(FILENAME,'(A,A,I4.4,A)') TRIM(Outputs_directory),'/Joint_distribution_data/Sample_',i,'.dat'
-OPEN(30+i, FILE = FILENAME, STATUS = 'REPLACE', FORM = 'FORMATTED', IOSTAT = IOS)
-
-
-IF( IOS .NE. 0) THEN
-PRINT*, 'CANNOT OPEN FILES FOR WRITING JOINT_DISTRIBUTION DATA'
-PRINT*,' FAILED ON FILENAME ', TRIM(FILENAME)
-STOP
-ENDIF
-
-ENDDO
+    CALL SYSTEM('mkdir -p '//TRIM(Outputs_directory)//'/Joint_distribution_data')
+    DO i=1,NUM_DATA
+        WRITE(FILENAME,'(A,A,I4.4,A)') TRIM(Outputs_directory),'/Joint_distribution_data/Sample_',i,'.dat'
+        OPEN(30+i, FILE = FILENAME, STATUS = 'REPLACE', FORM = 'FORMATTED', IOSTAT = IOS)
+        IF( IOS .NE. 0) THEN
+            PRINT*, 'CANNOT OPEN FILES FOR WRITING JOINT_DISTRIBUTION DATA'
+            PRINT*,' FAILED ON FILENAME ', TRIM(FILENAME)
+            STOP
+        ENDIF
+    ENDDO
 ENDIF
 
 k_best = -10
@@ -180,12 +187,12 @@ PA = 0
 AA = 0
 RETURN_INFO%best(:) = 0.0_8
 RETURN_INFO%AV(:) = 0.0_8
-RETURN_INFO%change_points(:) = 0.0_8
+!RETURN_INFO%change_points(:) = 0.0_8  af
 RETURN_INFO%convergence(:) = 0.0_8
 RETURN_INFO%sup(:) = 0.0_8
 RETURN_INFO%inf(:) = 0.0_8
 RETURN_INFO%MARGINAL_AGES(:,:) = 0.0_8
-RETURN_INFO%n_changepoint_hist(:) = 0
+RETURN_INFO%n_changepoint_hist(:) = 0  
 discrete_history(:,:) = 0
 
 IF(MINVAL( I_SD(1:NUM_DATA)) .eq. 0.0_8) THEN
@@ -623,9 +630,10 @@ CALL Find_linear_interpolated_values( k, x_min, x_max, pt, endpt, discretise_siz
 interpolated_signal_grad = (interpolated_signal_grad - interpolated_signal)/1e-6
 
 
-    IF( FREQ_WRITE_MODELS > 0) then
-    if( s>burn_in .AND. mod(s-burn_in,thin * FREQ_WRITE_MODELS) == 0) WRITE(15,'(F10.3)') (interpolated_signal(i),i=1, discretise_size)
-    ENDIF
+IF( FREQ_WRITE_MODELS > 0) then
+    if( s>burn_in .AND. mod(s-burn_in,thin * FREQ_WRITE_MODELS) == 0) &
+    WRITE(unit=unit_write_models,fmt='(F10.3)') (interpolated_signal(i),i=1, discretise_size)
+ENDIF
 
 
 ! CALL Find_linear_interpolated_values( k, x_min, x_max, pt, endpt, discretise_size, x(1:discretise_size), interpolated_signal)
@@ -740,9 +748,11 @@ enddo !i
 
 
 !Do the histogram on change points
+! af output changepoints in ascii file
             do i = 1,k
-                bb=bb+1
-                RETURN_INFO%change_points(bb)=pt(i,1)
+!               bb=bb+1
+                write(unit=RETURN_INFO%output_changepoints_unit, fmt='(F10.3)') pt(i,1)
+!               RETURN_INFO%change_points(bb)=pt(i,1)
             enddo
 
     endif !if burn-in
@@ -812,7 +822,7 @@ enddo
 
 RETURN_INFO%MAX_NUMBER_CHANGE_POINTS_HISTORY = bb
 
-IF( FREQ_WRITE_MODELS > 0) CLOSE(15)
+IF( FREQ_WRITE_MODELS > 0) CLOSE(unit=unit_write_models)
 
 
 IF( FREQ_WRITE_JOINT_DISTRIB > 0) THEN
